@@ -6,7 +6,7 @@ s.textContent='@import url("https://fonts.googleapis.com/css2?family=Black+Ops+O
 document.head.appendChild(s);
 
 var T=80,E=0,C=534.07,IV=null;
-var MSGS=['Analyzing link structure...','Connecting to bypass API...','Bypassing ad layer 1...','Bypassing ad layer 2...','Bypassing ad layer 3...','Bypassing ad layer 4...','Bypassing ad layer 5...','Bypassing ad layer 6...','Fetching destination...','Finalizing bypass...','Almost done...'];
+var MSGS=['Analyzing link structure...','Scanning page elements...','Removing ad timers...','Bypassing ad layer 1...','Bypassing ad layer 2...','Bypassing ad layer 3...','Bypassing ad layer 4...','Bypassing ad layer 5...','Bypassing ad layer 6...','Fetching destination...','Finalizing...'];
 function fmt(s){var m=Math.floor(s/60),sc=s%60;return m+':'+(sc<10?'0':'')+sc;}
 
 var adH='';
@@ -39,6 +39,124 @@ o.innerHTML='<div class="fscan"></div>'
 +'<div class="fdb" id="fdb"><div class="fdt">✓ BYPASS COMPLETE</div><div class="fdts">Redirecting...</div></div>';
 document.body.appendChild(o);
 
+// ── BACKGROUND BYPASS -- overlay চলার সময়ই কাজ শুরু ──
+var foundDest=null;
+
+// সব timer/countdown জিরো করো
+function killTimers(){
+  // CSS এ countdown এর জন্য যেসব variable আছে
+  document.querySelectorAll('[class*="timer"],[class*="countdown"],[class*="count"],[id*="timer"],[id*="countdown"]').forEach(function(el){
+    el.textContent='0';
+    el.setAttribute('data-time','0');
+    el.setAttribute('data-countdown','0');
+  });
+  // JS setInterval/setTimeout override
+  var maxId=setTimeout(function(){},0);
+  for(var i=0;i<maxId;i++){clearTimeout(i);clearInterval(i);}
+}
+
+// disabled buttons enable করো
+function enableAll(){
+  document.querySelectorAll('[disabled],[class*="disabled"],[class*="locked"],[class*="btn-lock"]').forEach(function(el){
+    el.removeAttribute('disabled');
+    el.classList.remove('disabled','locked','btn-lock','btn-disabled');
+    el.style.pointerEvents='auto';
+    el.style.opacity='1';
+  });
+}
+
+// page এর সব external link collect করো
+function collectLinks(){
+  var links=[];
+  var host=window.location.hostname;
+  document.querySelectorAll('a[href]').forEach(function(a){
+    var h=a.href;
+    if(h&&h.indexOf('http')===0&&h.indexOf(host)===-1&&h.indexOf('javascript')===-1){
+      links.push(h);
+    }
+  });
+  return links;
+}
+
+// JS variable থেকে destination খোঁজো
+function findInScripts(){
+  var dest=null;
+  var host=window.location.hostname;
+  var pats=[
+    /(?:url|link|href|dest|redirect|goto|target|finalUrl|final_url|destination)\s*[:=]\s*['"]([^'"]{15,})['"]/gi,
+    /window\.location(?:\.href)?\s*=\s*['"]([^'"]+)['"]/gi,
+    /location\.replace\s*\(\s*['"]([^'"]+)['"]/gi,
+    /location\.assign\s*\(\s*['"]([^'"]+)['"]/gi,
+    /window\.open\s*\(\s*['"]([^'"]+)['"]/gi,
+    /(?:href|src)\s*:\s*['"]([^'"]{15,})['"]/gi,
+  ];
+  document.querySelectorAll('script:not([src])').forEach(function(sc){
+    if(dest)return;
+    var txt=sc.textContent||'';
+    pats.forEach(function(p){
+      if(dest)return;
+      p.lastIndex=0;
+      var m;
+      while((m=p.exec(txt))!==null){
+        var u=m[1];
+        if(u.indexOf('http')===0&&u.indexOf(host)===-1&&u.length>15){
+          dest=u;break;
+        }
+      }
+    });
+  });
+  return dest;
+}
+
+// meta refresh check
+function findMeta(){
+  var meta=document.querySelector('meta[http-equiv="refresh"],meta[http-equiv="Refresh"]');
+  if(meta){
+    var c=meta.getAttribute('content')||'';
+    var m=c.match(/url=([^\s;'"]+)/i);
+    if(m&&m[1]&&m[1].indexOf('http')===0)return m[1];
+  }
+  return null;
+}
+
+// keyword দিয়ে button/link খোঁজো
+function findByKeyword(){
+  var kw=['continue','skip','get link','get key','proceed','claim','access','next','download','verify','obter','acessar','próximo','continuar','pular','clique'];
+  var found=null;
+  var host=window.location.hostname;
+  document.querySelectorAll('a,button,[onclick],[class*="btn"],[class*="button"]').forEach(function(el){
+    if(found)return;
+    var txt=(el.textContent||el.innerText||'').toLowerCase().trim();
+    var href=(el.href||el.getAttribute('onclick')||'');
+    if(kw.some(function(k){return txt.indexOf(k)!==-1;})){
+      if(el.href&&el.href.indexOf('http')===0&&el.href.indexOf(host)===-1){
+        found=el.href;
+      }else{
+        try{el.click();}catch(e){}
+      }
+    }
+  });
+  return found;
+}
+
+// MutationObserver -- dynamic content
+var obs=new MutationObserver(function(){
+  if(foundDest)return;
+  enableAll();
+  killTimers();
+  var d=findInScripts()||findMeta()||findByKeyword();
+  if(d){foundDest=d;}
+});
+obs.observe(document.body,{childList:true,subtree:true,attributes:true,characterData:true});
+
+// Initial scan
+setTimeout(function(){
+  killTimers();
+  enableAll();
+  foundDest=findInScripts()||findMeta();
+},500);
+
+// Countdown loop
 IV=setInterval(function(){
   E++;
   var rem=T-E,p=E/T;
@@ -57,58 +175,46 @@ IV=setInterval(function(){
     else if(i===ad+1)el.classList.add('factive');
   }
   document.getElementById('fst').textContent=MSGS[Math.min(Math.floor(p*MSGS.length),MSGS.length-1)];
+
+  // প্রতি 10 সেকেন্ডে scan করো
+  if(E%10===0){
+    killTimers();
+    enableAll();
+    if(!foundDest)foundDest=findInScripts()||findMeta();
+  }
+
   if(E>=T){
     clearInterval(IV);
+    obs.disconnect();
     document.getElementById('fst').textContent='Bypass complete!';
     document.getElementById('fdb').style.display='block';
     document.querySelectorAll('.fdot').forEach(function(d){d.style.display='none';});
-    doBypass(url);
+
+    // Final destination attempt
+    var dest=foundDest||findInScripts()||findMeta()||findByKeyword();
+    var links=collectLinks();
+
+    if(dest){
+      setTimeout(function(){
+        var ob=document.getElementById('fb-ov');if(ob)ob.remove();
+        window.location.href=dest;
+      },1200);
+    } else if(links.length>0){
+      // সব external link গুলো দেখাও
+      var linksDiv=document.createElement('div');
+      linksDiv.style.cssText='margin-top:12px!important;width:100%!important;max-width:380px!important;background:#050d18!important;border:2px solid #00e5ff33!important;border-radius:10px!important;padding:12px!important;max-height:150px!important;overflow-y:auto!important';
+      var html='<div style="font-family:Rajdhani,sans-serif!important;font-size:10px!important;font-weight:700!important;letter-spacing:4px!important;color:#00e5ff!important;text-transform:uppercase!important;margin-bottom:8px!important">Found Links</div>';
+      links.slice(0,5).forEach(function(l,idx){
+        html+='<div style="margin-bottom:6px!important"><a href="'+l+'" style="font-family:Rajdhani,sans-serif!important;font-size:11px!important;font-weight:700!important;color:#fff!important;word-break:break-all!important;text-decoration:none!important" target="_blank">'+l.substring(0,50)+'...</a></div>';
+      });
+      linksDiv.innerHTML=html;
+      document.getElementById('fb-ov').appendChild(linksDiv);
+    } else {
+      // Last resort: bypass.vip এ পাঠাও
+      document.getElementById('fdts').textContent='Opening bypass.vip...';
+      window.open('https://bypass.vip/?url='+encodeURIComponent(url),'_blank');
+    }
   }
 },1000);
 window._fbiv=IV;
-
-function doBypass(u){
-  // Method 1: bypass.vip redirect
-  var w=window.open('https://bypass.vip/?url='+encodeURIComponent(u),'_blank');
-  // Method 2: bypass current page elements
-  var kw=['continue','skip','get link','get key','proceed','claim','access','next','download','verify'];
-  document.querySelectorAll('a,button').forEach(function(el){
-    var t=(el.textContent||el.innerText||'').toLowerCase().trim();
-    if(kw.some(function(k){return t.indexOf(k)!==-1;})){
-      try{el.click();}catch(e){}
-    }
-  });
-  // Method 3: find hidden destination
-  var scripts=document.querySelectorAll('script');
-  var pats=[
-    /(?:url|link|href|dest|redirect|goto)\s*[:=]\s*['"]([^'"]{10,})['"]/gi,
-    /window\.location(?:\.href)?\s*=\s*['"]([^'"]+)['"]/gi,
-    /location\.replace\s*\(\s*['"]([^'"]+)['"]/gi
-  ];
-  scripts.forEach(function(sc){
-    var txt=sc.textContent||'';
-    pats.forEach(function(pat){
-      var m;pat.lastIndex=0;
-      while((m=pat.exec(txt))!==null){
-        var dest=m[1];
-        if(dest.indexOf('http')===0&&dest.indexOf(window.location.hostname)===-1){
-          setTimeout(function(){
-            var ob=document.getElementById('fb-ov');
-            if(ob)ob.remove();
-            window.location.href=dest;
-          },1500);
-        }
-      }
-    });
-  });
-  // Method 4: meta refresh
-  var meta=document.querySelector('meta[http-equiv="refresh"]');
-  if(meta){
-    var cont=meta.getAttribute('content')||'';
-    var mu=cont.match(/url=([^\s;'"]+)/i);
-    if(mu&&mu[1].indexOf('http')===0){
-      setTimeout(function(){window.location.href=mu[1];},1500);
-    }
-  }
-}
 })();
